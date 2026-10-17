@@ -1,21 +1,30 @@
 from langchain_core.messages import HumanMessage
-
 from agent.checkpointer import get_checkpointer
+from agent.store import get_store
 from agent.graph import build_graph
 
 
 def main():
     print("Converation ID : sample 'user-1'")
+    user_id = input("Enter user ID: ").strip()
     thread_id = input("Enter conversation ID: ").strip()
+
     
-    if not thread_id:
-        print("Conversation ID cannot be empty.")
+    if not user_id or not thread_id:
+        print("User ID and conversation ID cannot be empty.")
         return
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {
+                "thread_id": thread_id,
+                "user_id": user_id,}}
+    
+    namespace = (user_id,"memories")
 
-    with get_checkpointer("checkpoints.sqlite") as checkpointer:
-        graph = build_graph(checkpointer=checkpointer)
+    with ( get_checkpointer("checkpoints.sqlite") as checkpointer,
+           get_store("long_term_memory.sqlite") as store,):
+        graph = build_graph(
+            checkpointer=checkpointer,
+            store=store)
 
         # config = {
         #     "configurable": {
