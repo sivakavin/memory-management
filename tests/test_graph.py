@@ -1,7 +1,8 @@
 from unittest.mock import MagicMock, patch
-
 from langchain_core.messages import AIMessage, HumanMessage
 from agent.graph import build_graph
+from agent.checkpointer import get_checkpointer
+
 
 
 def test_graph_returns_ai_response():
@@ -20,3 +21,12 @@ def test_graph_returns_ai_response():
     assert len(result["messages"]) == 2
     assert result["messages"][-1].content == "Hello! How can I help?"
     mock_llm.invoke.assert_called_once()
+
+
+def test_graph_compiles_with_sqlite_checkpointer(tmp_path):
+    db_path = str(tmp_path / "checkpoints.sqlite")
+
+    with get_checkpointer(db_path) as checkpointer:
+        graph = build_graph(checkpointer=checkpointer)
+
+        assert graph is not None

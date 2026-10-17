@@ -1,6 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from langchain_core.messages import SystemMessage
 
+
 from agent.llm import get_llm
 from agent.state import AgentState
 
@@ -26,4 +27,4 @@ def build_graph():
     builder.add_edge(START,"chatbot")
     builder.add_edge("chatbot",END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=None)
