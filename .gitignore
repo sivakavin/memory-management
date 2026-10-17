@@ -51,3 +51,9 @@ dist/
 
 # Docker overrides (if used locally)
 docker-compose.override.yml
+
+# SQLite checkpoint and memory files
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
