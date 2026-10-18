@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     groq_api_key: str = ""
-    model:str="meta-llama/llama-prompt-guard-2-22m"
+    model:str="openai/gpt-oss-120b"
     temperature:int=0
 
     model_config = SettingsConfigDict(

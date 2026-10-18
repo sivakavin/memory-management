@@ -1,5 +1,6 @@
 from agent.config import Settings
 
+
 def test_default_settings():
     settings = Settings(_env_file=None)
 
