@@ -45,6 +45,10 @@ build/
 dist/
 *.egg-info/
 
+# Node / frontend
+node_modules/
+.vite/
+
 # Local secrets and certificates
 *.pem
 *.key
