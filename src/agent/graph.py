@@ -1,9 +1,24 @@
-from langgraph.graph import END, START, StateGraph
+import uuid
+
 from langchain_core.messages import SystemMessage
+from langgraph.graph import END, START, StateGraph
 
 from agent.llm import get_llm
 from agent.state import AgentState
-import uuid
+
+
+def _llm_overrides(config):
+    """Pull optional per-request LLM settings from the runnable config."""
+    llm_config = (config or {}).get("configurable", {}).get("llm") or {}
+    overrides = {}
+    if llm_config.get("api_key"):
+        overrides["api_key"] = llm_config["api_key"]
+    if llm_config.get("model"):
+        overrides["model"] = llm_config["model"]
+    if llm_config.get("temperature") is not None:
+        overrides["temperature"] = llm_config["temperature"]
+    return overrides
+
 
 def call_model(state:AgentState,config,*,store):
     user_id=config["configurable"]["user_id"]
@@ -33,7 +48,7 @@ def call_model(state:AgentState,config,*,store):
     ) 
 
 
-    llm = get_llm()
+    llm = get_llm(**_llm_overrides(config))
 
     response = llm.invoke(
         [
