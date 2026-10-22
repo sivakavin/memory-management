@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 import agent.api as api_module
 from agent.api import app
@@ -33,6 +33,7 @@ def status_llm(monkeypatch, mock_llm):
 def client(tmp_path, monkeypatch, graph_llm, status_llm):
     monkeypatch.setattr(api_module, "CHECKPOINT_DB", tmp_path / "checkpoints.sqlite")
     monkeypatch.setattr(api_module, "MEMORY_DB", tmp_path / "long_term_memory.sqlite")
+    monkeypatch.setattr(api_module, "METRICS_DB", tmp_path / "request_metrics.sqlite")
 
     settings = MagicMock()
     settings.groq_api_key = "server-key"
@@ -154,6 +155,7 @@ def test_chat_records_thread_and_returns_answer(client):
     assert response.json()["input_tokens"] == 0
     assert response.json()["output_tokens"] == 0
     assert response.json()["total_tokens"] == 0
+    assert response.json()["tools_used"] == []
 
     threads = client.get("/users/alice/threads").json()["threads"]
     assert len(threads) == 1
@@ -288,3 +290,88 @@ def test_chat_rejects_non_numeric_temperature(client):
     )
 
     assert response.status_code == 422
+
+
+def test_chat_records_metrics(client, mock_llm):
+    mock_llm.invoke.return_value = AIMessage(
+        content="hi",
+        usage_metadata={
+            "input_tokens": 11,
+            "output_tokens": 7,
+            "total_tokens": 18,
+        },
+    )
+
+    client.post(
+        "/chat",
+        json={"user_id": "alice", "thread_id": "t1", "message": "hello"},
+    )
+
+    response = client.get("/users/alice/metrics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == "alice"
+    assert len(body["metrics"]) == 1
+    metric = body["metrics"][0]
+    assert metric["thread_id"] == "t1"
+    assert metric["input_tokens"] == 11
+    assert metric["output_tokens"] == 7
+    assert metric["total_tokens"] == 18
+    assert metric["tools_used"] == []
+    assert metric["created_at"]
+
+
+def test_metrics_are_isolated_between_users(client):
+    client.post(
+        "/chat",
+        json={"user_id": "alice", "thread_id": "t1", "message": "hello"},
+    )
+
+    assert client.get("/users/bob/metrics").json()["metrics"] == []
+
+
+def test_clear_metrics_removes_user_history(client):
+    client.post(
+        "/chat",
+        json={"user_id": "alice", "thread_id": "t1", "message": "hello"},
+    )
+
+    response = client.delete("/users/alice/metrics")
+
+    assert response.status_code == 204
+    assert client.get("/users/alice/metrics").json()["metrics"] == []
+
+
+def test_collect_tools_used_only_for_latest_turn():
+    messages = [
+        HumanMessage(content="old question"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "old_tool",
+                    "args": {},
+                    "id": "old-1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(content="old result", tool_call_id="old-1", name="old_tool"),
+        HumanMessage(content="new question"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "search",
+                    "args": {},
+                    "id": "new-1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        ToolMessage(content="new result", tool_call_id="new-1", name="search"),
+        AIMessage(content="done"),
+    ]
+
+    assert api_module._collect_tools_used(messages) == ["search"]

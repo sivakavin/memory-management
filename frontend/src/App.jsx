@@ -35,7 +35,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [llmConfigVersion, setLlmConfigVersion] = useState(0);
   const [monitorOpen, setMonitorOpen] = useState(false);
-  const [metrics, setMetrics] = useState([]);
+  const [metricsRefreshToken, setMetricsRefreshToken] = useState(0);
 
   const refreshThreads = useCallback(async (id) => {
     try {
@@ -57,7 +57,6 @@ export default function App() {
     setActiveThreadId(null);
     setMessages([]);
     setError("");
-    setMetrics([]);
   }
 
   function handleLogin(name) {
@@ -143,21 +142,7 @@ export default function App() {
         ...prev,
         { role: "assistant", content: response.answer },
       ]);
-      setMetrics((prev) =>
-        [
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            at: new Date().toISOString(),
-            model: response.model,
-            keySource: response.key_source,
-            latencyMs: response.latency_ms ?? 0,
-            inputTokens: response.input_tokens ?? 0,
-            outputTokens: response.output_tokens ?? 0,
-            totalTokens: response.total_tokens ?? 0,
-          },
-          ...prev,
-        ].slice(0, 100)
-      );
+      setMetricsRefreshToken((token) => token + 1);
       refreshThreads(userId);
     } catch (err) {
       setMessages((prev) => [
@@ -253,8 +238,9 @@ export default function App() {
 
       {monitorOpen && (
         <MonitorModal
-          metrics={metrics}
-          onClear={() => setMetrics([])}
+          userId={userId}
+          threads={threads}
+          refreshToken={metricsRefreshToken}
           onClose={() => setMonitorOpen(false)}
         />
       )}

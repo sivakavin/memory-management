@@ -90,6 +90,14 @@ export const api = {
         message,
       }),
     }),
+
+  listMetrics: (userId) =>
+    request(`/users/${encodeURIComponent(userId)}/metrics`),
+
+  clearMetrics: (userId) =>
+    request(`/users/${encodeURIComponent(userId)}/metrics`, {
+      method: "DELETE",
+    }),
 };
 
 export { API_BASE };

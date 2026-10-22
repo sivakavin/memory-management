@@ -1,6 +1,7 @@
 
 import hashlib
 import logging
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from agent.checkpointer import get_checkpointer
 from agent.config import get_settings
 from agent.graph import build_graph
 from agent.llm import get_llm
+from agent.metrics import clear_metrics, init_metrics_db, list_metrics, record_metric
 from agent.store import get_store
 from agent.tracing import flush_langfuse
 
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKPOINT_DB = PROJECT_ROOT / "checkpoints.sqlite"
 MEMORY_DB = PROJECT_ROOT / "long_term_memory.sqlite"
+METRICS_DB = PROJECT_ROOT / "request_metrics.sqlite"
 
 # Prevent simultaneous graph invocations in this single-process example.
 graph_lock = Lock()
@@ -111,9 +114,36 @@ def _summarize_title(message: str) -> str:
     return title if len(title) <= 60 else f"{title[:57]}..."
 
 
+def _collect_tools_used(messages: list[Any]) -> list[str]:
+    """Return tool names used during the latest conversation turn."""
+    turn_start = 0
+    for index, message in enumerate(messages):
+        if getattr(message, "type", "") == "human":
+            turn_start = index
+
+    tools: list[str] = []
+    for message in messages[turn_start + 1 :]:
+        for call in getattr(message, "tool_calls", None) or []:
+            if isinstance(call, dict):
+                name = call.get("name")
+            else:
+                name = getattr(call, "name", None)
+            if name and str(name) not in tools:
+                tools.append(str(name))
+
+        if getattr(message, "type", "") == "tool":
+            name = getattr(message, "name", None)
+            if name and str(name) not in tools:
+                tools.append(str(name))
+
+    return tools
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting memory agent...")
+
+    init_metrics_db(METRICS_DB)
 
     with (
         get_checkpointer(str(CHECKPOINT_DB)) as checkpointer,
@@ -172,6 +202,25 @@ class ChatResponse(BaseModel):
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    tools_used: list[str] = Field(default_factory=list)
+
+
+class MetricItem(BaseModel):
+    id: str
+    thread_id: str
+    model: str
+    key_source: str
+    latency_ms: float
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    tools_used: list[str]
+    created_at: str
+
+
+class MetricsResponse(BaseModel):
+    user_id: str
+    metrics: list[MetricItem]
 
 
 class ThreadSummary(BaseModel):
@@ -459,6 +508,29 @@ def get_thread_messages(user_id: str, thread_id: str):
     )
 
 
+@app.get("/users/{user_id}/metrics", response_model=MetricsResponse)
+def get_user_metrics(user_id: str):
+    user_id = user_id.strip()
+    if not user_id:
+        raise HTTPException(status_code=422, detail="user_id cannot be empty.")
+
+    rows = list_metrics(METRICS_DB, user_id)
+    return MetricsResponse(
+        user_id=user_id,
+        metrics=[MetricItem(**row) for row in rows],
+    )
+
+
+@app.delete("/users/{user_id}/metrics", status_code=204)
+def delete_user_metrics(user_id: str):
+    user_id = user_id.strip()
+    if not user_id:
+        raise HTTPException(status_code=422, detail="user_id cannot be empty.")
+
+    clear_metrics(METRICS_DB, user_id)
+    logger.info("Cleared request metrics: user_id=%s", user_id)
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(
     request: ChatRequest,
@@ -531,6 +603,7 @@ def chat(
         input_tokens, output_tokens, total_tokens = _extract_usage(
             last_message
         )
+        tools_used = _collect_tools_used(messages)
 
         _record_thread(
             user_id,
@@ -538,6 +611,24 @@ def chat(
             first_message=message,
             message_count=len(messages),
         )
+
+        try:
+            record_metric(
+                METRICS_DB,
+                metric_id=str(uuid.uuid4()),
+                user_id=user_id,
+                thread_id=thread_id,
+                model=effective_model,
+                key_source=key_source,
+                latency_ms=latency_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                tools_used=tools_used,
+                created_at=_now_iso(),
+            )
+        except sqlite3.Error as exc:
+            logger.warning("Failed to record request metrics: %s", exc)
 
         logger.info(
             "Chat request completed: latency_ms=%s tokens=%s/%s",
@@ -556,6 +647,7 @@ def chat(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
+            tools_used=tools_used,
         )
 
     except HTTPException:
