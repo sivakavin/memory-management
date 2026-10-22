@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function ChatWindow({
   userId,
@@ -66,7 +68,15 @@ export default function ChatWindow({
 
         {messages.map((message, index) => (
           <div key={index} className={`bubble-row ${message.role}`}>
-            <div className={`bubble ${message.role}`}>{message.content}</div>
+            {message.role === "assistant" ? (
+              <div className="bubble assistant markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <div className={`bubble ${message.role}`}>{message.content}</div>
+            )}
           </div>
         ))}
 

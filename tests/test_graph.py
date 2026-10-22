@@ -32,6 +32,9 @@ def test_graph_returns_ai_response():
     assert len(result["messages"]) == 2
     assert result["messages"][-1].content == "Hello! How can I help?"
     mock_llm.invoke.assert_called_once()
+    assert mock_llm.invoke.call_args.kwargs["config"]["run_name"] == (
+        "chat-response"
+    )
 
 
 def test_graph_compiles_with_sqlite_checkpointer(tmp_path):

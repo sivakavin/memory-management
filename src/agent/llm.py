@@ -1,6 +1,8 @@
 from langchain_groq import ChatGroq
+from langfuse.langchain import CallbackHandler
 
 from agent.config import get_settings
+from agent.tracing import get_langfuse_handler
 
 
 def get_llm(
@@ -23,10 +25,12 @@ def get_llm(
             "from the app's LLM settings."
         )
 
+    handler: CallbackHandler | None = get_langfuse_handler()
     return ChatGroq(
         model=model or settings.model,
         api_key=resolved_key,
         temperature=(
             temperature if temperature is not None else settings.temperature
         ),
+        callbacks=[handler] if handler is not None else None,
     )

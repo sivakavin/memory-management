@@ -1,10 +1,17 @@
-import uuid
+import hashlib
 
 from langchain_core.messages import SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 from agent.llm import get_llm
+from agent.prompt_loader import load_system_prompt
 from agent.state import AgentState
+from agent.tracing import get_langfuse_metadata
+
+
+def _memory_key(text: str) -> str:
+    normalized = " ".join(text.casefold().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _llm_overrides(config):
@@ -27,12 +34,13 @@ def call_model(state:AgentState,config,*,store):
 
     # 1. Get the latest user message
     last_message = state["messages"][-1]
-    user_text = last_message.content
+    user_text = str(last_message.content)
 
     # 2. Save it to long-term memory
+    memory_key = _memory_key(user_text)
     store.put(
         namespace,
-        str(uuid.uuid4()),
+        memory_key,
         {"text": user_text},
     )
 
@@ -41,25 +49,42 @@ def call_model(state:AgentState,config,*,store):
     # {"text": "I like python,html,css"},
     # ) 
 
-    memories = store.search(namespace,query="user facts")
-    
-    memory_text = "\n".join(
-        item.value.get("text"," ") for item in memories
-    ) 
+    memories = store.search(namespace, limit=20)
+
+    seen = set()
+    memory_lines = []
+    for item in memories:
+        text = (item.value or {}).get("text")
+        if not isinstance(text, str) or item.key == memory_key:
+            continue
+        normalized = " ".join(text.split())
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        memory_lines.append(normalized[:400])
+
+    memory_text = "\n".join(memory_lines[:10])[:2000]
 
 
     llm = get_llm(**_llm_overrides(config))
 
+    system_content = load_system_prompt()
+    if memory_text:
+        system_content += f"\n\nRelevant long-term memories:\n{memory_text}"
+
     response = llm.invoke(
         [
-             SystemMessage(
-                content=(
-                    "You are a helpful assistant. Use these saved memories "
-                    f"when relevant:\n{memory_text}"
-                )
-            ),
+            SystemMessage(content=system_content),
             *state["messages"],
-        ]
+        ],
+        config={
+            "run_name": "chat-response",
+            "metadata": get_langfuse_metadata(
+                user_id=user_id,
+                session_id=config["configurable"].get("thread_id", ""),
+            ),
+        },
     )
 
     return {"messages":[response]}
