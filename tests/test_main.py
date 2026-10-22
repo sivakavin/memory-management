@@ -51,6 +51,8 @@ def test_main_runs_conversation_until_quit(monkeypatch, capsys):
     monkeypatch.setattr(
         main_module, "build_graph", lambda *a, **k: mock_graph
     )
+    flush_mock = MagicMock()
+    monkeypatch.setattr(main_module, "flush_langfuse", flush_mock)
 
     main()
 
@@ -61,6 +63,7 @@ def test_main_runs_conversation_until_quit(monkeypatch, capsys):
     _, kwargs = mock_graph.invoke.call_args
     assert kwargs["config"]["configurable"]["user_id"] == "user-1"
     assert kwargs["config"]["configurable"]["thread_id"] == "thread-1"
+    flush_mock.assert_called_once()
 
 
 def test_main_skips_blank_input(monkeypatch):

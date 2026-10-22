@@ -19,6 +19,7 @@ from agent.config import get_settings
 from agent.graph import build_graph
 from agent.llm import get_llm
 from agent.store import get_store
+from agent.tracing import flush_langfuse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,7 +127,10 @@ async def lifespan(app: FastAPI):
         app.state.checkpointer = checkpointer
         logger.info("Memory agent initialized successfully.")
 
-        yield
+        try:
+            yield
+        finally:
+            flush_langfuse()
 
     logger.info("Memory agent shut down.")
 
@@ -295,7 +299,13 @@ def status(
         )
     else:
         try:
-            get_llm(**override).invoke("ping")
+            get_llm(**override).invoke(
+                "ping",
+                config={
+                    "run_name": "llm-connectivity-check",
+                    "metadata": {"langfuse_tags": ["health-check"]},
+                },
+            )
             payload = StatusResponse(
                 **common,
                 llm_connected=True,

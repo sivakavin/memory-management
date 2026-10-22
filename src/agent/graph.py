@@ -5,6 +5,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agent.llm import get_llm
 from agent.state import AgentState
+from agent.tracing import get_langfuse_metadata
 
 
 def _llm_overrides(config):
@@ -59,7 +60,14 @@ def call_model(state:AgentState,config,*,store):
                 )
             ),
             *state["messages"],
-        ]
+        ],
+        config={
+            "run_name": "chat-response",
+            "metadata": get_langfuse_metadata(
+                user_id=user_id,
+                session_id=config["configurable"].get("thread_id", ""),
+            ),
+        },
     )
 
     return {"messages":[response]}

@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     model:str="openai/gpt-oss-120b"
     temperature:int=0
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = ""
+    langfuse_capture_content: bool = False
 
     # Comma separated list of origins allowed to call this API from the browser.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
